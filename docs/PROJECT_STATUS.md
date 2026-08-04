@@ -5,110 +5,95 @@ Userspace reimplementation of the kbase ioctl protocol for the Dimensity 8300.
 - Device: Poco X6 Pro (duchamp)
 - SoC: MediaTek Dimensity 8300 (MT6897)
 - GPU: Mali-G615 MC6 (Valhall architecture, CSF firmware)
-- Kernel driver: mali_kbase_mt6897_r44 (MediaTek proprietary, not Google's)
-- Access node: /dev/mali0 (crw-rw-rw-, major 10, minor 99)
-- Environment: Native Termux with clang. Execution via Shizuku/rish session (u:r:shell:s0 context) to bypass node permissions.
+- Kernel driver: mali_kbase_mt6897_r44 (MediaTek proprietary)
+- Access node: /dev/mali0
+- Environment: Native Termux with clang. Execution via Shizuku/rish session.
+- GitHub: https://github.com/nangitagamer777-art/Panvk_Kmod
 
 ## Current File Structure
 ~/Panvk_Kmod/
 ├── include/
-│   └── kbase_shim.h          # Structs, macros, kbase ioctls, and CSF opcodes
+│   └── kbase_shim.h          # Structs, macros, kbase ioctls, CSF opcodes
 ├── src/
-│   ├── main.c                 # Main test driver / orchestrator
+│   ├── main.c                 # Main test driver
 │   ├── kbase_shim.c           # Init, context, generic memory (Phases 1-4)
-│   ├── kbase_shim_v3.c        # Queue buffer with execution privileges (Phase 5)
-│   └── kbase_shim_v4.c        # CSF instructions, kick, and I/O page monitor (Phases 6-7)
+│   ├── kbase_shim_v4.c        # GPU_EX buffer, register, bind, kick, I/O monitor (Phases 5-9)
+│   └── kbase_shim_test_groups.c  # Group creation via cmd 42 (v1.6)
 ├── build/
-│   └── shim_test_v4           # Currently running binary
+│   └── shim_test_v4           # Current binary
 ├── docs/
 │   └── PROJECT_STATUS.md      # This log
 ├── .gitignore
 ├── LICENSE                    # MIT
-└── README.md                  # English documentation for GitHub
+└── README.md
 
-### Reference repos and sources:
-- ~/mali-kbase-src/ -- kbase kernel source (Google Pixel branch, struct reference)
-- Key kernel files: mali_kbase_csf_ioctl.h (CSF ioctls), mali_kbase_csf.c (register/bind/kick flow), mali_kbase_mem_linux.c (mmap I/O pages)
-- External: 0x36/Pixel_GPU_Exploit for ioctl numbers, Man Yue Mo CVE-2025-0072 write-up
-- Mesa environment: ~/mesa-26.2.0-rc2/ (panvk build in Debian proot for future testing)
-- GitHub repo: https://github.com/nangitagamer777-art/Panvk_Kmod
+## What Works (Phases 1-9 Complete)
 
-## What I've Got Working (Phases 1-7)
+### Phase 1 — Handshake
+VERSION_CHECK (cmd 52) with major=11, minor=11. Returns kbase 1.20.
 
-### Phase 1 -- Initial Handshake
-Ran KBASE_IOCTL_VERSION_CHECK (cmd 52) with major=11, minor=11. Clean handshake, kbase version 1.20.
+### Phase 2 — Context
+SET_FLAGS (cmd 1) + GET_CONTEXT_ID (cmd 17). Context created successfully.
 
-### Phase 2 -- Context Creation
-KBASE_IOCTL_SET_FLAGS (cmd 1) with flags=0 went clean. Got real context ID via KBASE_IOCTL_GET_CONTEXT_ID (cmd 17).
+### Phase 3 — Generic Memory
+MEM_ALLOC (cmd 5). GPU VA 0x41000 with standard protection flags (0x200f).
 
-### Phase 3 -- Generic Memory
-KBASE_IOCTL_MEM_ALLOC (cmd 5), got GPU VA 0x41000 with output flags 0x200f.
+### Phase 4 — Queue Group
+QUEUE_GROUP_CREATE (cmd 58) with tiler/compute/fragment masks. Group handle 0.
 
-### Phase 4 -- Queue Group
-KBASE_IOCTL_CS_QUEUE_GROUP_CREATE (cmd 58) with tiler/compute/fragment masks. Got group_handle=0.
+### Phase 5 — Executable Buffer + Register + Bind
+MEM_ALLOC with GPU_EX flag (0x17 = CPU_RD|CPU_WR|GPU_RD|GPU_EX). Kernel maps to EXEC_VA zone (0x800000001000). CS_QUEUE_REGISTER (cmd 36) with size 0x2000. CS_QUEUE_BIND (cmd 39) returns mmap_handle=0x30000.
 
-### Phase 5 -- Executable Buffer, Register and Bind
-MEM_ALLOC with GPU_EX flag (0x17 = CPU_RD|CPU_WR|GPU_RD|GPU_EX). Kernel mapped it to EXEC_VA zone (0x800000001000). CS_QUEUE_REGISTER (cmd 36) with size 0x2000, prio 0. CS_QUEUE_BIND (cmd 39) on csi_index=0 returned mmap_handle=0x30000.
+### Phase 6 — Kick + Event Signal + Doorbell
+CS_QUEUE_KICK (cmd 37) accepted. CS_EVENT_SIGNAL (cmd 44) accepted. Manual doorbell poke via user I/O page 0.
 
-### Phase 6 -- Instruction Injection and CSF Kick
-Wrote 5 CSF instructions (NOP, MOVE32 0xDEAD, WAIT, NOP, END, 40 bytes) into CPU-mapped buffer. KBASE_IOCTL_CS_QUEUE_KICK (cmd 37) accepted. First kick accepted by the CSF scheduler!
+### Phase 7 — User I/O Page Mapping
+mmap() on mmap_handle=0x30000 maps 3 firmware pages: doorbell + input (CS_INSERT) + output (CS_EXTRACT, CS_ACTIVE).
 
-### Phase 7 -- I/O Page Mapping and Execution Monitoring
-mmap() on mmap_handle=0x30000 mapped 3 firmware control pages (doorbell + input + output). 10ms polling loop on CS_ACTIVE register from output page. Hardware processed the batch before the first loop cycle finished (CS_ACTIVE=0). Full CSF queue lifecycle control from userspace!
+### Phase 8 — GPU Execution Confirmed
+- 4 NOPs (32 bytes): EXTRACT baseline 0 → 32. All consumed.
+- 32 NOPs (256 bytes): EXTRACT baseline 0 → 256. All consumed.
+- 8 instructions (64 bytes): NOPs + MOVE32 + opcode 0x01. EXTRACT baseline 0 → 64. All consumed.
 
-### Loaded instruction batch (V4.1):
-[0] NOP           = 0x0000000000000000
-[1] MOVE32 0xDEAD = 0x02000000dead0000
-[2] WAIT 0x100    = 0x0500000000000100
-[3] NOP           = 0x0000000000000000
-[4] END           = 0x0a00000000000000
-Total: 5 instructions (40 bytes)
+### Phase 9 — Opcode Discovery
+- Opcodes 0x00 (NOP), 0x01, 0x02 (MOVE32) execute correctly.
+- Opcodes 0x0F+ and 0x10+ are invalid or break bind.
+- No END opcode needed — GPU executes until CS_INSERT is reached.
+- Group creation via cmd 42 (v1.6) works better on MediaTek r44 than cmd 58.
 
 ## Key Discoveries
 - GPU_EX (1<<4) is mandatory for CSF queue buffers. Without it, REGISTER fails with ENOENT.
 - r44 kernel separates normal memory (0x41000) from executable (0x800000001000).
-- Bind mmap_handle gives 3 contiguous I/O pages. CS_ACTIVE is at output_page[2], bit 0 = queue active.
-- CS_QUEUE_KICK (cmd 37) only needs the buffer address. Kernel accepts it cleanly.
-- All code cleaned up in English for GitHub. Spanish docs archived separately.
+- CS_INSERT must be set before kick — tells the GPU how many bytes to consume.
+- cmd 42 (QUEUE_GROUP_CREATE_1_6) activates the scheduler on r44; cmd 58 does not.
+- No explicit END instruction needed — GPU runs until INSERT == EXTRACT.
+- MOVE32 (opcode 0x02) works and can load immediate values into registers.
+- Doorbell page (page 0 of user I/O) accepts writes to wake the scheduler.
 
-## What's Coming
+## Pending
 
 ### High Priority
-- Phase 8: STORE instruction to write 0xDEAD into a separate data buffer for real execution proof.
-- Phase 9: CS_EVENT_SIGNAL (cmd 44) or doorbell interrupt mapping for notification without polling.
+- Phase 10: PanVK integration — create pan_kmod shim backend.
+- Map STORE_MULTIPLE and other compute opcodes from Mesa v12.xml.
+- Test Vulkan shader execution through the shim.
 
 ### Medium Priority
-- Opcode verification against Mesa v12.xml for STORE, CALL, COND_BRANCH.
-- Fault handling: CS_QUEUE_TERMINATE (cmd 41) and CS_QUEUE_GROUP_TERMINATE (cmd 43).
+- Scoreboard visibility: can we read MOVE32 results from I/O pages?
+- STORE_MULTIPLE configuration for writing results to data buffers.
+- Error handling: CS_QUEUE_TERMINATE (cmd 41), CS_QUEUE_GROUP_TERMINATE (cmd 43).
 
 ### Low Priority
-- PanVK integration as pan_kmod backend replacement.
-- Doorbell batching and multi-queue priority support.
+- Multi-queue and priority support.
+- Doorbell batching optimization.
 
 ## Quick Commands
-Build: clang -I./include -Wall -Wextra -o build/shim_test_v4 src/main.c src/kbase_shim.c src/kbase_shim_v3.c src/kbase_shim_v4.c
-Run: cp build/shim_test_v4 /sdcard/ && cp /sdcard/shim_test_v4 /data/local/tmp/ && chmod 777 /data/local/tmp/shim_test_v4 && /data/local/tmp/shim_test_v4
-Debug: strace -e ioctl /data/local/tmp/shim_test_v4 2>&1
+Build: cd ~/Panvk_Kmod && clang -I./include -Wall -Wextra -o build/shim_test_v4 src/main.c src/kbase_shim.c src/kbase_shim_v4.c src/kbase_shim_test_groups.c && cp build/shim_test_v4 /sdcard/
+Run (rish): cp /sdcard/shim_test_v4 /data/local/tmp/ && chmod 777 /data/local/tmp/shim_test_v4 && /data/local/tmp/shim_test_v4
 
 ## Technical Notes
-Memory flags: CPU_RD=0x01 CPU_WR=0x02 GPU_RD=0x04 GPU_WR=0x08 GPU_EX=0x10 (mandatory for ring buffers)
-CSF opcodes (8 bytes, [63:56]=opcode): NOP=0x00 MOVE32=0x02 WAIT=0x05 END=0x0A CALL=0x0B COND_BRANCH=0x0C
-I/O pages (3): Page 0=Doorbell, Page 1=Input (CS_INSERT), Page 2=Output (CS_EXTRACT + CS_ACTIVE)
+Memory flags: CPU_RD=0x01 CPU_WR=0x02 GPU_RD=0x04 GPU_WR=0x08 GPU_EX=0x10
+CSF opcodes: NOP=0x00 MOVE32=0x02 WAIT=0x05 (8 bytes, [63:56]=opcode)
+I/O pages: Page 0=Doorbell, Page 1=Input (CS_INSERT), Page 2=Output (CS_EXTRACT + CS_ACTIVE)
 
 ---
-*Log updated August 3, 2026. Phases 1-7 complete. Code on GitHub.*
-
-## Update: August 4, 2026 — Scheduler Wall
-
-Tested multiple approaches to trigger actual GPU execution after successful kick:
-- CS_QUEUE_KICK (cmd 37) — accepted, no execution
-- Manual doorbell poke via user I/O page 0 — no effect
-- CS_EVENT_SIGNAL (cmd 44) — accepted, no effect
-
-Root cause identified: queue groups are created in INACTIVE state. The kernel function
-`scheduler_group_schedule()` is responsible for moving them to RUNNABLE, but it never
-gets triggered by our ioctl sequence. All ioctls return success — the kernel accepts
-everything — but the CSF scheduler does not assign a CSG slot to our group.
-
-Next steps: investigate MediaTek r44 scheduler differences, check kernel logs via dmesg,
-explore potential missing initialization ioctls.
+*Updated August 4, 2026. Phases 1-9 complete. GPU execution confirmed at 256 bytes.*
