@@ -143,6 +143,7 @@ typedef struct {
 int kbase_shim_init(kbase_shim_device_t *dev);
 int kbase_shim_get_gpu_props(kbase_shim_device_t *dev);
 int kbase_shim_create_group(kbase_shim_device_t *dev);
+int kbase_shim_create_group_v16(kbase_shim_device_t *dev);
 int kbase_shim_register_and_bind_queue(kbase_shim_device_t *dev);
 int kbase_shim_register_and_bind_queue_v2(kbase_shim_device_t *dev);
 int kbase_shim_register_and_bind_queue_v3(kbase_shim_device_t *dev);
