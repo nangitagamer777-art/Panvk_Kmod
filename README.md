@@ -32,7 +32,7 @@ A lightweight C shim that talks directly to `/dev/mali0` through the kbase ioctl
 | 7 | mmap user I/O pages + CS_ACTIVE poll | 3 pages mapped, monitoring works |
 | 8 | 32 NOPs (256 bytes) executed | EXTRACT: 0 to 256, GPU confirmed |
 | 9 | Opcode fuzzing | NOP (0x00), MOVE32 (0x02) work. No END needed. |
-| 10 | PanVK integration | Next |
+| 10 | PanVK integration | Done |
 
 ## Key Discoveries
 
