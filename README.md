@@ -72,3 +72,12 @@ no custom kernel and no blobs.
 ## License
 
 MIT
+
+## Credits
+
+**Noin Haxel** ([@nangitagamer777-art](https://github.com/nangitagamer777-art)) — reverse engineering, implementation, testing.
+
+Special thanks to:
+- `0x36/Pixel_GPU_Exploit` — ioctl reference
+- Man Yue Mo (Google Project Zero) — CSF flow analysis
+- ARM Mali kernel source — struct definitions
