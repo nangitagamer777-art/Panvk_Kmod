@@ -4,3 +4,7 @@ build/
 *.bak
 .vscode/
 .DS_Store
+lib/
+src/shim_test
+src/*.cpp
+setup_github.sh
