@@ -1,8 +1,20 @@
-# Panvk_Kmod - Userspace kbase shim for Mali-G615 MC6
+# Panvk_Kmod - Userspace kbase shim for ARM Mali Valhall GPUs
 
-Reimplementation of the kbase ioctl protocol in userspace to drive the
-Mali-G615 MC6 GPU (MediaTek Dimensity 8300) without the proprietary
-ARM driver stack.
+Reimplementation of the kbase ioctl protocol in userspace to drive
+ARM Mali GPUs with CSF firmware without the proprietary driver stack.
+
+## Supported GPUs (Valhall / CSF architecture)
+
+| Generation | Models |
+|-----------|--------|
+| Gen 3 | Mali-G510, Mali-G610, Mali-G615, Mali-G710 |
+| Gen 4 | Mali-G715, Mali-G720, Mali-G725, Mali-G620, Mali-G625 |
+| Gen 5+ | Mali-G730, Mali-G820 (CSF-based, likely compatible) |
+
+Primary test device: **Mali-G615 MC6** on MediaTek Dimensity 8300.
+
+If your GPU uses the kbase driver and the CSF firmware interface,
+this shim should work with minimal or no changes.
 
 ## What this is
 
@@ -13,10 +25,10 @@ group management, register/bind of command queues, and scheduler kick
 with I/O page monitoring.
 
 End goal: plug this into Mesa panvk as a drop-in replacement for the
-kernel backend, giving the Mali-G615 an open-source Vulkan stack with
+kernel backend, giving Valhall GPUs an open-source Vulkan stack with
 no custom kernel and no blobs.
 
-## Device
+## Test device
 
 - Phone: Poco X6 Pro
 - SoC: MediaTek Dimensity 8300 (MT6897)
@@ -42,7 +54,7 @@ no custom kernel and no blobs.
 | Phase | IOCTL | Done |
 |-------|-------|------|
 | 1 | VERSION_CHECK (52) | yes |
-| 2 | SET_FLAGS (1) | yes |
+| 2 | SET_FLAGS (1) + GET_CONTEXT_ID (17) | yes |
 | 3 | MEM_ALLOC generic (5) | yes |
 | 4 | QUEUE_GROUP_CREATE (58) | yes |
 | 5 | MEM_ALLOC GPU_EX + REGISTER + BIND (5,36,39) | yes |
