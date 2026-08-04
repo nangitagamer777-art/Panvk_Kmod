@@ -121,3 +121,94 @@ int kbase_shim_csf_kick_and_wait_v4(kbase_shim_device_t *dev) {
     munmap(buf, 8192);
     return 0;
 }
+
+int test_end_opcodes(kbase_shim_device_t *dev) {
+    /* Candidatos a END: opcodes que podrían detener la ejecución limpiamente */
+    __u8 candidates[] = {0x00, 0x01, 0x02, 0x0F, 0x10, 0x1F, 0x20, 0x30, 0x40, 0x43};
+    int num_candidates = sizeof(candidates);
+
+    printf("\n[kb] === Testing END opcode candidates ===\n");
+
+    for (int i = 0; i < num_candidates; i++) {
+        __u8 op = candidates[i];
+        printf("[kb] --- Trying opcode 0x%02X ---\n", op);
+
+        /* Alloc buffer */
+        union kbase_ioctl_mem_alloc mem = {0};
+        mem.in.va_pages = 2;
+        mem.in.commit_pages = 2;
+        mem.in.flags = BASE_MEM_PROT_CPU_RD | BASE_MEM_PROT_CPU_WR |
+                       BASE_MEM_PROT_GPU_RD | BASE_MEM_PROT_GPU_EX;
+        if (ioctl(dev->mali_fd, KBASE_IOCTL_MEM_ALLOC, &mem) < 0) {
+            printf("[kb] mem_alloc failed\n"); return -1;
+        }
+        uint64_t gpu_va = mem.out.gpu_va;
+
+        /* mmap and write NOP + candidate */
+        void *buf = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, dev->mali_fd, gpu_va);
+        if (buf == MAP_FAILED) { printf("[kb] mmap failed\n"); return -1; }
+        memset(buf, 0, 8192);
+        __u64 *instr = (__u64 *)buf;
+        instr[0] = CSF_INSTR(CSF_OPCODE_NOP, 0);
+        instr[1] = CSF_INSTR(op, 0);  /* <-- candidato */
+        printf("[kb] NOP + 0x%02X written\n", op);
+
+        /* Register */
+        struct kbase_ioctl_cs_queue_register reg = {0};
+        reg.buffer_gpu_addr = gpu_va;
+        reg.buffer_size = 0x2000;
+        reg.priority = 0;
+        if (ioctl(dev->mali_fd, KBASE_IOCTL_CS_QUEUE_REGISTER, &reg) < 0) {
+            printf("[kb] register failed\n"); munmap(buf, 8192); continue;
+        }
+
+        /* Bind */
+        union kbase_ioctl_cs_queue_bind bind = {0};
+        bind.in.buffer_gpu_addr = gpu_va;
+        bind.in.group_handle = dev->group_handle;
+        bind.in.csi_index = 0;
+        if (ioctl(dev->mali_fd, KBASE_IOCTL_CS_QUEUE_BIND, &bind) < 0) {
+            printf("[kb] bind failed\n"); munmap(buf, 8192); continue;
+        }
+
+        /* mmap user I/O */
+        size_t io_sz = 3 * 4096;
+        void *io = mmap(NULL, io_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
+                        dev->mali_fd, bind.out.mmap_handle);
+        if (io == MAP_FAILED) {
+            printf("[kb] user_io mmap failed\n"); munmap(buf, 8192); continue;
+        }
+        volatile __u32 *out = (volatile __u32 *)((char *)io + 2 * 4096);
+        volatile __u32 *inp = (volatile __u32 *)((char *)io + 4096);
+        inp[CS_INSERT_LO/4] = 16;
+        inp[CS_INSERT_HI/4] = 0;
+
+        /* Kick */
+        struct kbase_ioctl_cs_queue_kick kick = {0};
+        kick.buffer_gpu_addr = gpu_va;
+        ioctl(dev->mali_fd, KBASE_IOCTL_CS_QUEUE_KICK, &kick);
+        ioctl(dev->mali_fd, KBASE_IOCTL_CS_EVENT_SIGNAL);
+        ((volatile __u32 *)io)[0] = 1;
+        usleep(100000);
+
+        __u32 extr_lo = out[CS_EXTRACT_LO/4];
+        __u32 extr_hi = out[CS_EXTRACT_HI/4];
+        printf("[kb] EXTRACT = 0x%08x_%08x (%llu bytes)\n",
+               extr_hi, extr_lo, (unsigned long long)extr_hi << 32 | extr_lo);
+
+        if (extr_lo >= 16 || extr_hi != 0) {
+            printf("[kb] >>> Candidate 0x%02X accepted! EXTRACT advanced! <<<\n", op);
+        }
+
+        munmap(io, io_sz);
+        munmap(buf, 8192);
+
+        /* Terminate queue */
+        struct kbase_ioctl_cs_queue_terminate term = {0};
+        term.buffer_gpu_addr = gpu_va;
+        ioctl(dev->mali_fd, KBASE_IOCTL_CS_QUEUE_TERMINATE, &term);
+
+        usleep(50000);
+    }
+    return 0;
+}
