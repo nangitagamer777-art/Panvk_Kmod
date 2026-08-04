@@ -150,3 +150,25 @@ int kbase_shim_csf_kick_and_wait_v4(kbase_shim_device_t *dev);
 void kbase_shim_close(kbase_shim_device_t *dev);
 
 #endif /* KBASE_SHIM_H */
+
+/* ── cs queue group create 1.6 (cmd 42, older version) ── */
+union kbase_ioctl_cs_queue_group_create_1_6 {
+    struct {
+        __u64 tiler_mask;
+        __u64 fragment_mask;
+        __u64 compute_mask;
+        __u8  cs_min;
+        __u8  priority;
+        __u8  tiler_max;
+        __u8  fragment_max;
+        __u8  compute_max;
+        __u8  padding[3];
+    } in;
+    struct {
+        __u8  group_handle;
+        __u8  padding[3];
+        __u32 group_uid;
+    } out;
+};
+#define KBASE_IOCTL_CS_QUEUE_GROUP_CREATE_1_6 \
+    _IOWR(0x80, 42, union kbase_ioctl_cs_queue_group_create_1_6)
