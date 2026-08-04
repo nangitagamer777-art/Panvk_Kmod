@@ -97,3 +97,18 @@ I/O pages (3): Page 0=Doorbell, Page 1=Input (CS_INSERT), Page 2=Output (CS_EXTR
 
 ---
 *Log updated August 3, 2026. Phases 1-7 complete. Code on GitHub.*
+
+## Update: August 4, 2026 — Scheduler Wall
+
+Tested multiple approaches to trigger actual GPU execution after successful kick:
+- CS_QUEUE_KICK (cmd 37) — accepted, no execution
+- Manual doorbell poke via user I/O page 0 — no effect
+- CS_EVENT_SIGNAL (cmd 44) — accepted, no effect
+
+Root cause identified: queue groups are created in INACTIVE state. The kernel function
+`scheduler_group_schedule()` is responsible for moving them to RUNNABLE, but it never
+gets triggered by our ioctl sequence. All ioctls return success — the kernel accepts
+everything — but the CSF scheduler does not assign a CSG slot to our group.
+
+Next steps: investigate MediaTek r44 scheduler differences, check kernel logs via dmesg,
+explore potential missing initialization ioctls.
