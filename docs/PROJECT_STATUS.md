@@ -125,3 +125,25 @@ EXTRACT monitoring for execution confirmation.
 Next steps for the community: Vulkan app testing, STORE_MULTIPLE
 implementation for shader output, multi-queue support.
 
+
+## August 5, 2026 — PanVK Integration COMPLETE
+
+After a marathon session spanning two nights and countless iterations:
+
+- Modified Mesa source files: pan_kmod.c, panvk_physical_device.c, panvk_instance.c, pan_model.c, pan_model.h
+- Added kbase_kmod.c backend with full pan_kmod_ops implementation
+- GPU detection works: vkEnumeratePhysicalDevices returns count=1
+- Mali-G615 MC6 recognized by PanVK as a Vulkan-capable device
+- Key fixes: gpu_id=0xA8070000 (hardware format), /dev/mali0 fallback in create_kmod_dev,
+  drmGetVersion bypass, get_drm_device_ids NULL protection, G615 model in pan_model table,
+  variant fallback in pan_get_model, CS_INSERT configuration for scheduler activation
+
+Total files modified in Mesa 26.2.0-rc2:
+- src/panfrost/lib/kmod/pan_kmod.c (kbase_dev_create integrated, fallback to /dev/mali0)
+- src/panfrost/lib/kmod/kbase_kmod.c (backend implementation, 15 ops)
+- src/panfrost/lib/kmod/meson.build (kbase_kmod.c added)
+- src/panfrost/vulkan/panvk_physical_device.c (create_kmod_dev: /dev/mali0 + drm_version bypass)
+- src/panfrost/vulkan/panvk_instance.c (fallback to /dev/mali0 when no DRM devices)
+- src/panfrost/model/pan_model.c (G615 added, variant fallback)
+- src/panfrost/model/pan_model.h (pan_prod_id fix)
+
