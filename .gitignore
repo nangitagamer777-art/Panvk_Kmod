@@ -1,10 +1,19 @@
+# Ocultar todo
 build/
-*.o
-*.swp
-*.bak
-.vscode/
-.DS_Store
+src/
+include/
 lib/
-src/shim_test
-src/*.cpp
+tools/
+docs/
+shaders/
+vulkan_icd/
+
+# Archivos sueltos
+group_handle
+queue_buffer_va
+queue_mmap_handle
+*.o
+*.bak
+*.zip
+libkbase_drm.so
 setup_github.sh
